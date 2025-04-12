@@ -2,6 +2,7 @@
 
 import { useState, useRef } from 'react';
 import PDFPreview from './PDFPreview';
+import HtmlReport from './HtmlReport';
 import JSZip from 'jszip';
 
 export default function FileUpload() {
@@ -11,9 +12,43 @@ export default function FileUpload() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [generateReport, setGenerateReport] = useState(true);
   const [showPreview, setShowPreview] = useState(false);
-  const [reportData, setReportData] = useState<any>(null);
+  interface ReportData {
+    patientId: string;
+    reportDate: string;
+    phenotypes: Array<{
+      gene: string;
+      phenotype: string;
+      activity: string;
+      implications: string;
+      pharmgkbId?: string;
+      guidelineLinks?: Array<{
+        title: string;
+        url: string;
+        source: string;
+      }>;
+    }>;
+    recommendations: Array<{
+      drug: string;
+      recommendation: string;
+      severity: 'high' | 'medium' | 'low';
+      evidenceLevel?: string;
+      guidelineLinks?: Array<{
+        title: string;
+        url: string;
+        source: string;
+      }>;
+      clinicalAnnotations?: Array<{
+        title: string;
+        url: string;
+        level: string;
+      }>;
+    }>;
+  }
+
+  const [reportData, setReportData] = useState<ReportData | null>(null);
   const [downloadBlob, setDownloadBlob] = useState<Blob | null>(null);
   const [downloadFileName, setDownloadFileName] = useState<string>('');
+  const [activeTab, setActiveTab] = useState<'html' | 'pdf'>('html');
   const abortController = useRef<AbortController | null>(null);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -41,11 +76,76 @@ export default function FileUpload() {
 
     setIsUploading(true);
     setError(null);
+    setUploadProgress(0);
 
-    // For demo purposes, show preview immediately
-    if (generateReport) {
-      // Comprehensive pharmacogenetic report data
-      const sampleReportData = {
+    // Create a new FormData instance
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('generateReport', generateReport.toString());
+
+    try {
+      // Create new AbortController for this request
+      abortController.current = new AbortController();
+
+      // Track upload progress using XMLHttpRequest
+      const xhr = new XMLHttpRequest();
+      
+      const promise = new Promise((resolve, reject) => {
+        xhr.upload.addEventListener('progress', (event) => {
+          if (event.lengthComputable) {
+            const progress = Math.round((event.loaded * 50) / event.total); // First 50% for upload
+            setUploadProgress(progress);
+          }
+        });
+
+        xhr.addEventListener('load', () => {
+          if (xhr.status === 200) {
+            resolve(xhr.response);
+          } else {
+            reject(new Error(`Upload failed with status ${xhr.status}`));
+          }
+        });
+
+        xhr.addEventListener('error', () => {
+          reject(new Error('Upload failed'));
+        });
+
+        xhr.addEventListener('abort', () => {
+          reject(new Error('Upload cancelled'));
+        });
+
+        // Start the request
+        xhr.open('POST', '/api/process-vcf');
+        xhr.responseType = 'blob';
+        xhr.send(formData);
+      });
+
+      // Connect abort controller
+      abortController.current.signal.addEventListener('abort', () => {
+        xhr.abort();
+      });
+
+      // Process the response
+      const blob = await promise as Blob;
+      
+      // If it's a zip file, extract the VCF data
+      if (blob.type === 'application/zip') {
+        const zip = new JSZip();
+        const zipContents = await zip.loadAsync(blob);
+        
+        // Extract the VCF file
+        const vcfFiles = Object.keys(zipContents.files).filter(name => name.endsWith('.vcf'));
+        if (vcfFiles.length > 0) {
+          const vcfFile = zipContents.files[vcfFiles[0]];
+          const vcfContent = await vcfFile.async('text');
+          // Here you could parse the VCF content if needed
+        }
+      }
+
+      setUploadProgress(100);
+      
+      // Set the sample report data for preview
+      const sampleReportData: ReportData = {
         patientId: 'DEMO-001',
         reportDate: new Date().toLocaleDateString(),
         phenotypes: [
@@ -53,13 +153,34 @@ export default function FileUpload() {
             gene: 'CYP2D6',
             phenotype: 'Normal Metabolizer',
             activity: 'Normal',
-            implications: 'Standard drug metabolism for most medications'
+            implications: 'Standard drug metabolism for most medications',
+            pharmgkbId: 'PA128',
+            guidelineLinks: [
+              {
+                title: 'CPIC Guideline for CYP2D6',
+                url: 'https://www.pharmgkb.org/guidelineAnnotation/PA166128738',
+                source: 'CPIC'
+              },
+              {
+                title: 'Dutch Pharmacogenetics Working Group Guideline for CYP2D6',
+                url: 'https://www.pharmgkb.org/guidelineAnnotation/PA166104955',
+                source: 'DPWG'
+              }
+            ]
           },
           {
             gene: 'CYP2C19',
             phenotype: 'Rapid Metabolizer',
             activity: 'Increased',
-            implications: 'May require higher doses of certain medications'
+            implications: 'May require higher doses of certain medications',
+            pharmgkbId: 'PA124',
+            guidelineLinks: [
+              {
+                title: 'CPIC Guideline for CYP2C19',
+                url: 'https://www.pharmgkb.org/guidelineAnnotation/PA166127638',
+                source: 'CPIC'
+              }
+            ]
           },
           {
             gene: 'CYP3A4',
@@ -91,12 +212,42 @@ export default function FileUpload() {
           {
             drug: 'Codeine',
             recommendation: 'Standard dosing - Monitor for effectiveness',
-            severity: 'medium'
+            severity: 'medium' as const,
+            evidenceLevel: 'Level 1A',
+            guidelineLinks: [
+              {
+                title: 'CPIC Guideline for Codeine and CYP2D6',
+                url: 'https://www.pharmgkb.org/guidelineAnnotation/PA166104996',
+                source: 'CPIC'
+              }
+            ],
+            clinicalAnnotations: [
+              {
+                title: 'Clinical Annotation for Codeine and CYP2D6',
+                url: 'https://www.pharmgkb.org/chemical/PA449088/clinicalAnnotation/1184553583',
+                level: '1A'
+              }
+            ]
           },
           {
             drug: 'Tramadol',
             recommendation: 'Monitor for reduced pain control',
-            severity: 'medium'
+            severity: 'medium' as const,
+            evidenceLevel: 'Level 1B',
+            guidelineLinks: [
+              {
+                title: 'CPIC Guideline for Tramadol and CYP2D6',
+                url: 'https://www.pharmgkb.org/guidelineAnnotation/PA166104997',
+                source: 'CPIC'
+              }
+            ],
+            clinicalAnnotations: [
+              {
+                title: 'Clinical Annotation for Tramadol and CYP2D6',
+                url: 'https://www.pharmgkb.org/chemical/PA451866/clinicalAnnotation/1183736004',
+                level: '1B'
+              }
+            ]
           },
           {
             drug: 'Hydrocodone',
@@ -106,7 +257,7 @@ export default function FileUpload() {
           {
             drug: 'Oxycodone',
             recommendation: 'Monitor for increased sensitivity',
-            severity: 'high'
+            severity: 'high' as const
           },
           // Antidepressants
           {
@@ -117,7 +268,7 @@ export default function FileUpload() {
           {
             drug: 'Venlafaxine (Effexor)',
             recommendation: 'Standard dosing with monitoring for side effects',
-            severity: 'low'
+            severity: 'low' as const
           },
           {
             drug: 'Fluoxetine (Prozac)',
@@ -127,7 +278,7 @@ export default function FileUpload() {
           {
             drug: 'Paroxetine (Paxil)',
             recommendation: 'Monitor for increased side effects',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Sertraline (Zoloft)',
@@ -143,12 +294,12 @@ export default function FileUpload() {
           {
             drug: 'Clopidogrel (Plavix)',
             recommendation: 'Higher dose may be required due to rapid metabolism',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Warfarin (Coumadin)',
             recommendation: 'Start with lower dose, frequent INR monitoring',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Metoprolol',
@@ -164,7 +315,7 @@ export default function FileUpload() {
           {
             drug: 'Simvastatin',
             recommendation: 'Consider dose reduction or alternative statin',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Atorvastatin (Lipitor)',
@@ -180,7 +331,7 @@ export default function FileUpload() {
           {
             drug: 'Omeprazole (Prilosec)',
             recommendation: 'Consider alternative medication due to reduced efficacy',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Esomeprazole (Nexium)',
@@ -201,7 +352,7 @@ export default function FileUpload() {
           {
             drug: 'Risperidone',
             recommendation: 'Monitor for increased side effects',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Quetiapine (Seroquel)',
@@ -212,18 +363,18 @@ export default function FileUpload() {
           {
             drug: 'Carbamazepine',
             recommendation: 'Test for HLA-B*1502 before initiating therapy',
-            severity: 'high'
+            severity: 'high' as const
           },
           {
             drug: 'Phenytoin (Dilantin)',
             recommendation: 'Start with lower dose, adjust based on levels',
-            severity: 'high'
+            severity: 'high' as const
           },
           // Other Common Medications
           {
             drug: 'Ondansetron (Zofran)',
             recommendation: 'Standard dosing effective',
-            severity: 'low'
+            severity: 'low' as const
           },
           {
             drug: 'Metformin',
@@ -233,7 +384,7 @@ export default function FileUpload() {
           {
             drug: 'Albuterol',
             recommendation: 'Standard dosing appropriate',
-            severity: 'low'
+            severity: 'low' as const
           },
           {
             drug: 'Azithromycin',
@@ -243,16 +394,25 @@ export default function FileUpload() {
           {
             drug: 'Prednisone',
             recommendation: 'Standard dosing protocol',
-            severity: 'low'
+            severity: 'low' as const
           }
         ]
       };
       
-      setReportData(sampleReportData);
-      setShowPreview(true);
+      if (generateReport) {
+        setReportData(sampleReportData);
+        setShowPreview(true);
+      }
+      
+      setIsUploading(false);
+      setUploadProgress(100);
+    } catch (err: any) {
+      setError(err.message || 'An error occurred during file processing');
+      setIsUploading(false);
+      setUploadProgress(0);
+    } finally {
+      abortController.current = null;
     }
-    
-    setIsUploading(false);
   };
 
   const handleCancel = () => {
@@ -360,19 +520,59 @@ export default function FileUpload() {
           )}
         </div>
       </form>
-      {showPreview && reportData && (
-        <PDFPreview
-          data={reportData}
-          onClose={() => {
-            setShowPreview(false);
-          }}
-        />
+      {reportData && (
+        <div className="mt-8">
+          {/* Tabs */}
+          <div className="border-b border-gray-200 dark:border-gray-700">
+            <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+              <button
+                onClick={() => setActiveTab('html')}
+                className={`
+                  ${activeTab === 'html'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }
+                  whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
+                `}
+              >
+                Interactive Report
+              </button>
+              <button
+                onClick={() => setActiveTab('pdf')}
+                className={`
+                  ${activeTab === 'pdf'
+                    ? 'border-blue-500 text-blue-600 dark:text-blue-400'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-gray-400 dark:hover:text-gray-300'
+                  }
+                  whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm
+                `}
+              >
+                PDF Report
+              </button>
+            </nav>
+          </div>
+
+          {/* Report Content */}
+          <div className="mt-6">
+            {activeTab === 'html' ? (
+              <HtmlReport data={reportData} />
+            ) : (
+              <PDFPreview
+                data={reportData}
+                onClose={() => {
+                  setActiveTab('html');
+                }}
+              />
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function triggerDownload(blob: Blob, fileName: string) {
+// Utility function to trigger file download
+const downloadFile = (blob: Blob, fileName: string) => {
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -382,3 +582,4 @@ function triggerDownload(blob: Blob, fileName: string) {
   window.URL.revokeObjectURL(url);
   document.body.removeChild(a);
 }
+

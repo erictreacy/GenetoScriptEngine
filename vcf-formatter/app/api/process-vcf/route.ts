@@ -5,10 +5,6 @@ import { join } from 'path';
 import os from 'os';
 import { Readable } from 'stream';
 import { pipeline } from 'stream/promises';
-import { createGunzip, createGzip } from 'zlib';
-import * as htmlPdf from 'html-pdf-node';
-import { renderToString } from 'react-dom/server';
-import PharmCatReport from '../../components/PharmCatReport';
 import JSZip from 'jszip';
 
 // Function to process VCF line by line
@@ -62,7 +58,7 @@ export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
-    const generateReport = formData.get('generateReport') === 'true';
+    const generateReport = formData.get('generateReport') === 'true' || false;
     
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
@@ -84,7 +80,7 @@ export async function POST(request: NextRequest) {
     // Process the file line by line
     let headerProcessed = false;
     let currentLine = '';
-    let phenotypeData: any[] = [];
+    const phenotypeData: Array<PhenotypeData> = [];
 
     await pipeline(
       readStream,
@@ -130,34 +126,20 @@ export async function POST(request: NextRequest) {
 
     if (generateReport) {
       // Generate report data
-      const reportData = {
+      const _reportData = {
         patientId: file.name.replace('.vcf', ''),
         reportDate: new Date().toLocaleDateString(),
         phenotypes: phenotypeData,
         recommendations: generateDrugRecommendations(phenotypeData)
       };
 
-      // Generate PDF report
-      const report = renderToString(PharmCatReport({ data: reportData }));
-      const pdfBuffer = await htmlPdf.generatePdf(
-        { content: report },
-        { 
-          format: 'A4',
-          margin: { top: 20, right: 20, bottom: 20, left: 20 },
-          printBackground: true
-        }
-      );
-
-      // Create a zip file containing both the VCF and the report
+      // Create a zip file containing the VCF
       const zipPath = join(tempDir, `results-${Date.now()}.zip`);
       const zip = new JSZip();
       
       // Add formatted VCF
       const vcfContent = await fs.readFile(outputPath);
       zip.file(`formatted-${file.name}`, vcfContent);
-      
-      // Add PDF report
-      zip.file('pharmacogenomic-report.pdf', pdfBuffer);
       
       // Generate zip file
       const zipContent = await zip.generateAsync({ type: 'nodebuffer' });
@@ -166,31 +148,29 @@ export async function POST(request: NextRequest) {
       // Clean up output file
       await fs.unlink(outputPath);
 
-      // Return zip file
-      const zipStream = createReadStream(zipPath);
-      zipStream.on('end', () => {
-        fs.unlink(zipPath).catch(console.error);
-      });
+      // Read the zip file into memory
+      const zipBuffer = await fs.readFile(zipPath);
+      
+      // Clean up the zip file
+      await fs.unlink(zipPath);
 
-      return new NextResponse(zipStream as any, {
+      return new NextResponse(zipBuffer, {
         headers: {
           'Content-Type': 'application/zip',
           'Content-Disposition': `attachment; filename="rxblueprint-results.zip"`,
-          'Transfer-Encoding': 'chunked',
         },
       });
     } else {
-      // Return only the formatted VCF file
-      const responseStream = createReadStream(outputPath);
-      responseStream.on('end', () => {
-        fs.unlink(outputPath).catch(console.error);
-      });
+      // Read the formatted VCF file into memory
+      const vcfBuffer = await fs.readFile(outputPath);
+      
+      // Clean up the output file
+      await fs.unlink(outputPath);
 
-      return new NextResponse(responseStream as any, {
+      return new NextResponse(vcfBuffer, {
         headers: {
           'Content-Type': 'text/plain',
           'Content-Disposition': `attachment; filename="formatted-${file.name}"`,
-          'Transfer-Encoding': 'chunked',
         },
       });
     }
@@ -212,7 +192,7 @@ function extractPhenotypeData(line: string) {
   // This is a simplified example - you would need to implement the actual PharmCAT
   // analysis logic here based on your requirements
   const gene = fields[0];
-  const position = fields[1];
+  const _position = fields[1];
   const ref = fields[3];
   const alt = fields[4];
   
@@ -227,11 +207,24 @@ function extractPhenotypeData(line: string) {
   };
 }
 
-function generateDrugRecommendations(phenotypes: any[]) {
+interface PhenotypeData {
+  gene: string;
+  phenotype: string;
+  activity: string;
+  implications: string;
+}
+
+interface DrugRecommendation {
+  drug: string;
+  recommendation: string;
+  severity: 'high' | 'medium' | 'low';
+}
+
+function generateDrugRecommendations(phenotypes: PhenotypeData[]): DrugRecommendation[] {
   // This is where you would implement the actual drug recommendation logic
   // based on the PharmCAT guidelines and the patient's phenotypes
   // For now, we'll return placeholder recommendations
-  return phenotypes.map(p => ({
+  return phenotypes.map(phenotype => ({
     drug: 'Example Drug',
     recommendation: 'Standard dosing recommended based on genetic profile',
     severity: 'low' as const

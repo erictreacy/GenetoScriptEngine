@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { PDFViewer } from '@react-pdf/renderer';
 import PharmCatReport from './PharmCatReport';
+import Portal from './Portal';
 
 interface PDFPreviewProps {
   data: {
@@ -28,22 +29,23 @@ export default function PDFPreview({ data, onClose }: PDFPreviewProps) {
 
   useEffect(() => {
     setMounted(true);
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
   }, []);
 
   if (!mounted) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
+    <Portal>
       <div 
-        className="bg-white dark:bg-gray-800 w-[90vw] h-[90vh] rounded-lg shadow-xl flex flex-col"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="modal-title"
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center"
+        onClick={(e) => e.target === e.currentTarget && onClose()}
       >
+        <div 
+          className="bg-white dark:bg-gray-800 w-[90vw] h-[90vh] rounded-lg shadow-xl flex flex-col"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+          onClick={(e) => e.stopPropagation()}
+        >
         <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
           <h2 id="modal-title" className="text-xl font-semibold text-gray-900 dark:text-white">
             PharmCAT Report Preview
@@ -73,7 +75,8 @@ export default function PDFPreview({ data, onClose }: PDFPreviewProps) {
             <PharmCatReport data={data} />
           </PDFViewer>
         </div>
+        </div>
       </div>
-    </div>
+    </Portal>
   );
 }

@@ -1,20 +1,11 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
+import Footer from './components/Footer';
+import Header from './components/Header';
 
 export const metadata: Metadata = {
-  title: "RxBlueprint | Pharmacogenomic Analysis",
-  description: "Personalized medicine through advanced pharmacogenomic analysis of your genetic data.",
+  title: "GenetoScript | Pharmacogenomic Analysis",
+  description: "Personalized medicine through advanced pharmacogenomic analysis of your genetic data. Free.",
   icons: {
     icon: [
       { url: '/images/logo.svg', type: 'image/svg+xml' },
@@ -28,11 +19,11 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'RxBlueprint',
+    title: 'GenetoScript',
   },
   openGraph: {
-    title: 'RxBlueprint | Pharmacogenomic Analysis',
-    description: 'Personalized medicine through advanced pharmacogenomic analysis of your genetic data.',
+    title: 'GenetoScript | Pharmacogenomic Analysis',
+    description: 'Personalized medicine through advanced pharmacogenomic analysis of your genetic data. Free and private.',
     images: [{ url: '/images/logo.svg', width: 512, height: 512 }],
   },
 };
@@ -45,9 +36,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className="antialiased flex flex-col min-h-screen font-sans"
       >
-        {children}
+        <Header />
+        <main className="flex-grow pt-16">{children}</main>
+        <Footer />
+        <div id="portal-root" />
       </body>
     </html>
   );
