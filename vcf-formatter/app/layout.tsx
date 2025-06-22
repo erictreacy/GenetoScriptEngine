@@ -41,7 +41,7 @@ export default function RootLayout({
         <Header />
         <main className="flex-grow pt-16">{children}</main>
         <Footer />
-        <div id="portal-root" />
+        <div id="portal-root" className="relative z-[9999]" />
       </body>
     </html>
   );

@@ -24,8 +24,16 @@ export default function Portal({ children }: PortalProps) {
 
   if (!mounted || typeof window === 'undefined') return null;
 
+  // Create portal container if it doesn't exist
+  let portalContainer = document.getElementById('portal-root');
+  if (!portalContainer) {
+    portalContainer = document.createElement('div');
+    portalContainer.id = 'portal-root';
+    document.body.appendChild(portalContainer);
+  }
+
   return createPortal(
     children,
-    document.body
+    portalContainer
   );
 }
